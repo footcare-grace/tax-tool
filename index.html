@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>経費管理ツール｜確定申告・住民税申告用</title>
+<style>
+:root{
+  --ink:#2b2b28;--sub:#6f6e66;--line:#e3e1d8;--bg:#faf9f5;--card:#ffffff;
+  --accent:#1d6e5a;--accent-soft:#e4f1ec;--warn:#a05a1f;--warn-soft:#f7ecdd;
+  --danger:#a32d2d;--danger-soft:#fceaea;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI",Meiryo,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.6}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+header h1{font-size:17px;font-weight:600}
+header .period{font-size:12.5px;color:var(--sub)}
+nav{display:flex;gap:4px;background:var(--card);border-bottom:1px solid var(--line);padding:0 12px;overflow-x:auto}
+nav button{appearance:none;border:none;background:none;padding:11px 16px;font-size:14px;color:var(--sub);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;font-family:inherit}
+nav button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+main{max-width:960px;margin:0 auto;padding:20px 16px 60px}
+.tab{display:none}
+.tab.on{display:block}
+h2{font-size:15.5px;font-weight:600;margin:0 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+@media(max-width:600px){.grid2{grid-template-columns:1fr}}
+label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:4px;font-weight:600}
+input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+.field{margin-bottom:12px}
+.hint{font-size:11.5px;color:var(--sub);margin-top:3px}
+button.btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 16px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}
+button.btn:hover{background:#f3f2ec}
+button.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.btn.primary:hover{background:#175a4a}
+button.btn.small{padding:5px 10px;font-size:12.5px}
+button.btn.danger{color:var(--danger);border-color:#e8c5c5}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.stat{background:var(--accent-soft);border-radius:9px;padding:12px 14px}
+.stat .lbl{font-size:11.5px;color:#0f5040;font-weight:600}
+.stat .val{font-size:21px;font-weight:700;color:#0a3f33;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:11.5px;color:var(--sub);font-weight:600;padding:7px 8px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cat-pill{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:5px;background:#eef0e9;color:#4a5142;white-space:nowrap}
+.scrollx{overflow-x:auto}
+.notice{font-size:12.5px;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:14px}
+.notice.green{background:var(--accent-soft);color:#0f5040}
+.muted{color:var(--sub);font-size:12.5px}
+.kw-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.kw-row input{flex:1}
+.kw-row select{width:160px;flex:none}
+.match-flash{animation:flash 1.2s}
+@keyframes flash{0%{background:var(--accent-soft)}100%{background:transparent}}
+.empty{text-align:center;color:var(--sub);padding:30px 10px;font-size:13.5px}
+.total-row td{font-weight:700;border-top:2px solid var(--ink);border-bottom:none}
+.del-x{color:var(--danger);cursor:pointer;font-size:13px;background:none;border:none;padding:2px 6px}
+footer{max-width:960px;margin:0 auto;padding:0 16px 40px;font-size:11.5px;color:var(--sub)}
+#print-area{display:none}
+@media print{
+  body *{visibility:hidden}
+  #print-area,#print-area *{visibility:visible}
+  #print-area{display:block;position:absolute;left:0;top:0;width:100%;padding:10mm;font-size:11px}
+  #print-area h1{font-size:16px;margin-bottom:2mm}
+  #print-area h2{font-size:13px;margin:5mm 0 2mm}
+  #print-area table{font-size:10px}
+  #print-area th,#print-area td{padding:1.2mm 1.5mm;border:0.3mm solid #999}
+  #print-area th{background:#eee}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>経費管理ツール</h1>
+  <span class="period">確定申告・住民税申告用｜フットケアサロン</span>
+</header>
+<nav>
+  <button class="on" data-tab="input">経費を入力</button>
+  <button data-tab="list">明細一覧</button>
+  <button data-tab="summary">集計</button>
+  <button data-tab="rules">仕分けルール</button>
+  <button data-tab="output">出力・保存</button>
+</nav>
+<main>
+
+<!-- ===== 入力タブ ===== -->
+<section class="tab on" id="tab-input">
+  <div class="card">
+    <h2>新しい経費を入力</h2>
+    <div class="grid2">
+      <div class="field"><label>日付</label><input type="date" id="f-date"></div>
+      <div class="field"><label>支払金額（税込・円）</label><input type="number" id="f-amount" placeholder="例：3500" min="0"></div>
+    </div>
+    <div class="field">
+      <label>品名・内容</label>
+      <input type="text" id="f-name" placeholder="例：爪やすり（ニグロ）">
+      <p class="hint">入力すると、仕分けルールに基づいてカテゴリが自動選択されます</p>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>カテゴリ（勘定科目）</label>
+        <select id="f-cat"></select>
+      </div>
+      <div class="field">
+        <label>支払方法</label>
+        <select id="f-pay">
+          <option>現金</option><option>クレジットカード</option><option>銀行振込</option>
+          <option>楽天ペイ</option><option>PayPay</option><option>その他</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>按分率（％）</label>
+        <input type="number" id="f-ratio" value="100" min="1" max="100">
+        <p class="hint">事業専用なら100。自宅兼用などは事業使用分の割合を入力</p>
+      </div>
+      <div class="field"><label>領収書No.（任意）</label><input type="text" id="f-receipt" placeholder="例：R-040"></div>
+    </div>
+    <div class="field"><label>備考・目的</label><input type="text" id="f-memo" placeholder="例：施術用器具。〇〇で購入。"></div>
+    <div class="btnrow">
+      <button class="btn primary" id="btn-add">この内容で追加する</button>
+      <button class="btn" id="btn-clear">入力内容をクリア</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>CSVファイルから取り込む</h2>
+    <p class="muted" style="margin-bottom:10px">列順：日付, カテゴリ, 品名・内容, 金額, 支払方法, 領収書No, 按分率, 備考（1行目はヘッダー）。カテゴリが空欄の行は仕分けルールで自動判定します。</p>
+    <input type="file" id="csv-file" accept=".csv,text/csv">
+  </div>
+</section>
+
+<!-- ===== 一覧タブ ===== -->
+<section class="tab" id="tab-list">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <h2 style="margin:0">経費明細一覧</h2>
+      <select id="filter-cat" style="width:auto"></select>
+    </div>
+    <div class="scrollx"><table id="list-table">
+      <thead><tr>
+        <th>No.</th><th>日付</th><th>カテゴリ</th><th>品名・内容</th>
+        <th class="num">金額</th><th class="num">按分</th><th class="num">経費計上額</th>
+        <th>支払</th><th>備考</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 集計タブ ===== -->
+<section class="tab" id="tab-summary">
+  <div class="grid4" id="stat-cards" style="margin-bottom:16px"></div>
+  <div class="card">
+    <h2>カテゴリ別集計（申告転記用）</h2>
+    <p class="muted" style="margin-bottom:8px">「経費計上額」は按分率を適用した後の金額です。確定申告書・収支内訳書にはこの金額を転記してください。</p>
+    <div class="scrollx"><table id="cat-table"><thead><tr><th>カテゴリ</th><th class="num">件数</th><th class="num">支払総額</th><th class="num">経費計上額</th><th class="num">割合</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>月別集計</h2>
+    <div class="scrollx"><table id="month-table"><thead><tr><th>年月</th><th class="num">件数</th><th class="num">支払総額</th><th class="num">経費計上額</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ===== ルールタブ ===== -->
+<section class="tab" id="tab-rules">
+  <div class="card">
+    <h2>キーワード仕分けルール</h2>
+    <p class="muted" style="margin-bottom:12px">品名にキーワードが含まれていると、カテゴリを自動選択します。上にあるルールが優先されます。</p>
+    <div id="kw-list"></div>
+    <div class="btnrow">
+      <button class="btn" id="btn-add-rule">ルールを追加</button>
+      <button class="btn" id="btn-reset-rules">初期ルールに戻す</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>カテゴリ（勘定科目）の管理</h2>
+    <div id="cat-list"></div>
+    <div class="btnrow"><button class="btn" id="btn-add-cat">カテゴリを追加</button></div>
+  </div>
+</section>
+
+<!-- ===== 出力タブ ===== -->
+<section class="tab" id="tab-output">
+  <div class="notice green">データはこのブラウザ内に自動保存されています。機種変更やブラウザ変更の前には、必ず下のCSVバックアップを保存してください。</div>
+  <div class="card">
+    <h2>申告用PDFを作成</h2>
+    <p class="muted" style="margin-bottom:10px">明細一覧とカテゴリ別集計をまとめたPDFを作成します。印刷画面が開いたら、送信先で「PDFに保存」を選んでください。e-Taxの添付書類（イメージデータ）として提出できます。</p>
+    <button class="btn primary" id="btn-pdf">PDFを作成（印刷画面を開く）</button>
+  </div>
+  <div class="card">
+    <h2>CSVで保存（バックアップ・Excel用）</h2>
+    <p class="muted" style="margin-bottom:10px">全明細をCSVでダウンロードします。Excelで開けます。このアプリの「CSVから取り込む」で読み戻すこともできます。</p>
+    <button class="btn" id="btn-csv">CSVをダウンロード</button>
+  </div>
+  <div class="card">
+    <h2>データの初期化</h2>
+    <p class="muted" style="margin-bottom:10px">全データを削除して空の状態に戻します。実行前にCSVバックアップをおすすめします。</p>
+    <button class="btn danger" id="btn-wipe">全データを削除する</button>
+  </div>
+</section>
+
+</main>
+<footer>※ 本ツールは記帳補助を目的としたものです。勘定科目の最終判断や申告内容については、税務署または税理士にご確認ください。</footer>
+<div id="print-area"></div>
+<script src="app.js"></script>
+</body>
+</html>
