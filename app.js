@@ -392,5 +392,242 @@ $("#btn-wipe").addEventListener("click",()=>{
   }
 });
 
-function render(){ renderList(); renderSummary(); renderRules(); renderIncome(); }
-load(); buildCatSelects(); render();
+/* ===== 税額計算（令和7年分・8年分の税制に基づく概算） ===== */
+const LS_TAX="keihi-tax-inputs-v1";
+let taxInputs;
+function loadTaxInputs(){
+  try{ taxInputs = JSON.parse(localStorage.getItem(LS_TAX)) || null; }catch(e){ taxInputs=null; }
+  if(!taxInputs) taxInputs = {salary:0,salaryWithheld:0,salaryShakaihoken:0,shakaihokenSelf:0,shoukibo:0,seimei:0,jishin:0,furusato:0};
+}
+function saveTaxInputs(){ try{ localStorage.setItem(LS_TAX, JSON.stringify(taxInputs)); }catch(e){} }
+
+/* 給与所得控除額（令和7年分・8年分。給与収入190万円以下は一律65万円） */
+function kyuyoKoujo(shunyuu){
+  if(shunyuu<=0) return 0;
+  if(shunyuu<=1900000) return 650000;
+  if(shunyuu<=3600000) return Math.round(shunyuu*0.3+80000);
+  if(shunyuu<=6600000) return Math.round(shunyuu*0.2+440000);
+  if(shunyuu<=8500000) return Math.round(shunyuu*0.1+1100000);
+  return 1950000;
+}
+
+/* 所得税の基礎控除額（令和7年分・8年分の時限加算措置を反映） */
+function kisoKoujoShotoku(goukeiShotoku){
+  if(goukeiShotoku<=1320000) return 950000;
+  if(goukeiShotoku<=3360000) return 880000;
+  if(goukeiShotoku<=4890000) return 680000;
+  if(goukeiShotoku<=6550000) return 630000;
+  if(goukeiShotoku<=23500000) return 580000;
+  if(goukeiShotoku<=24000000) return 480000;
+  if(goukeiShotoku<=24500000) return 320000;
+  if(goukeiShotoku<=25000000) return 160000;
+  return 0;
+}
+/* 住民税の基礎控除額（改正なし・43万円据え置き。高所得者は逓減） */
+function kisoKoujoJuumin(goukeiShotoku){
+  if(goukeiShotoku<=24000000) return 430000;
+  if(goukeiShotoku<=24500000) return 290000;
+  if(goukeiShotoku<=25000000) return 150000;
+  return 0;
+}
+
+/* 所得税額の速算表 */
+function shotokuZeiSanshutsu(kazeiShotoku){
+  const table=[
+    [1950000,0.05,0],
+    [3300000,0.10,97500],
+    [6950000,0.20,427500],
+    [9000000,0.23,636000],
+    [18000000,0.33,1536000],
+    [40000000,0.40,2796000],
+    [Infinity,0.45,4796000]
+  ];
+  for(const [max,rate,control] of table){
+    if(kazeiShotoku<=max) return Math.max(0,Math.round(kazeiShotoku*rate-control));
+  }
+  return 0;
+}
+
+function taxYen(n){ return (n<0?"−":"")+"¥"+Math.abs(Math.round(n)).toLocaleString("ja-JP"); }
+
+function calcTax(){
+  // ①事業所得（既存の集計と連動）
+  const {totalK}=aggregate();
+  const bizIncome = incomes.reduce((s,r)=>s+r.amount,0);
+  const bizProfit = Math.max(0, bizIncome - totalK);
+
+  // ②給与所得
+  const salary = Number(taxInputs.salary)||0;
+  const salaryKoujo = kyuyoKoujo(salary);
+  const salaryIncome = Math.max(0, salary - salaryKoujo);
+
+  // 合計所得金額
+  const totalIncome = bizProfit + salaryIncome;
+
+  // 所得控除
+  const kiso = kisoKoujoShotoku(totalIncome);
+  const shakaihokenTotal = (Number(taxInputs.salaryShakaihoken)||0) + (Number(taxInputs.shakaihokenSelf)||0);
+  const hokenTotal = Math.min(120000,Number(taxInputs.seimei)||0) + Math.min(50000,Number(taxInputs.jishin)||0);
+  const shoukibo = Number(taxInputs.shoukibo)||0;
+  const furusato = Number(taxInputs.furusato)||0;
+  const kifu = Math.max(0, furusato-2000);
+  const koujoTotal = kiso + shakaihokenTotal + hokenTotal + shoukibo + kifu;
+
+  // 課税所得（1000円未満切捨）
+  const kazeiShotoku = Math.max(0, Math.floor((totalIncome - koujoTotal)/1000)*1000);
+  const shotokuZei = shotokuZeiSanshutsu(kazeiShotoku);
+  const fukkoZei = Math.round(shotokuZei*0.021);
+  const shotokuTotal = shotokuZei + fukkoZei;
+
+  // 住民税（概算）
+  const kisoJuumin = kisoKoujoJuumin(totalIncome);
+  const koujoTotalJuumin = kisoJuumin + shakaihokenTotal + hokenTotal + shoukibo + kifu;
+  const kazeiJuumin = Math.max(0, Math.floor((totalIncome - koujoTotalJuumin)/1000)*1000);
+  const shotokuwari = Math.round(kazeiJuumin*0.10);
+  const kintouwari = 5000;
+  const juuminTotal = shotokuwari + kintouwari;
+
+  // ふるさと納税 控除上限額の目安（一般的な近似式）
+  // 上限額 ≈ 住民税所得割額×20% ÷ (90%－所得税率×1.021) ＋ 2,000円
+  let shotokuRate=0.05;
+  if(kazeiShotoku>1950000) shotokuRate=0.10;
+  if(kazeiShotoku>3300000) shotokuRate=0.20;
+  if(kazeiShotoku>6950000) shotokuRate=0.23;
+  if(kazeiShotoku>9000000) shotokuRate=0.33;
+  if(kazeiShotoku>18000000) shotokuRate=0.40;
+  if(kazeiShotoku>40000000) shotokuRate=0.45;
+  const bunbo = 0.9 - shotokuRate*1.021;
+  const furusatoLimit = bunbo>0 ? Math.floor((shotokuwari*0.2/bunbo+2000)/100)*100 : 0;
+
+  return {
+    bizIncome,totalK,bizProfit,salary,salaryKoujo,salaryIncome,totalIncome,
+    kiso,shakaihokenTotal,hokenTotal,shoukibo,kifu,koujoTotal,kazeiShotoku,
+    shotokuZei,fukkoZei,shotokuTotal,
+    kazeiJuumin,shotokuwari,kintouwari,juuminTotal,
+    furusatoLimit,furusato
+  };
+}
+
+function renderTax(){
+  // 入力欄に保存済みの値を反映
+  $("#t-salary").value = taxInputs.salary||"";
+  $("#t-salary-withheld").value = taxInputs.salaryWithheld||"";
+  $("#t-salary-shakaihoken").value = taxInputs.salaryShakaihoken||"";
+  $("#t-shakaihoken-self").value = taxInputs.shakaihokenSelf||"";
+  $("#t-shoukibo").value = taxInputs.shoukibo||"";
+  $("#t-seimei").value = taxInputs.seimei||"";
+  $("#t-jishin").value = taxInputs.jishin||"";
+  $("#t-furusato").value = taxInputs.furusato||"";
+
+  const r = calcTax();
+
+  $("#tax-biz-income").textContent = taxYen(r.bizIncome);
+  $("#tax-biz-expense").textContent = "−"+taxYen(r.totalK).replace("−","");
+  $("#tax-biz-profit").textContent = taxYen(r.bizProfit);
+
+  $("#tax-salary-koujo").textContent = taxYen(r.salaryKoujo);
+  $("#tax-salary-income").textContent = taxYen(r.salaryIncome);
+
+  $("#tax-total-income").textContent = taxYen(r.totalIncome);
+  $("#tax-kiso").textContent = taxYen(r.kiso);
+  $("#tax-shakaihoken-total").textContent = taxYen(r.shakaihokenTotal);
+  $("#tax-hoken-total").textContent = taxYen(r.hokenTotal);
+  $("#tax-shoukibo-show").textContent = taxYen(r.shoukibo);
+  $("#tax-kifu").textContent = taxYen(r.kifu);
+  $("#tax-koujo-total").textContent = taxYen(r.koujoTotal);
+  $("#tax-kazei").textContent = taxYen(r.kazeiShotoku);
+  $("#tax-shotoku").textContent = taxYen(r.shotokuZei);
+  $("#tax-fukko").textContent = taxYen(r.fukkoZei);
+  $("#tax-shotoku-total").textContent = taxYen(r.shotokuTotal);
+
+  $("#tax-juumin-kazei").textContent = taxYen(r.kazeiJuumin);
+  $("#tax-juumin-shotokuwari").textContent = taxYen(r.shotokuwari);
+  $("#tax-juumin-kintouwari").textContent = taxYen(r.kintouwari);
+  $("#tax-juumin-total").textContent = taxYen(r.juuminTotal);
+
+  $("#tax-furusato-limit").textContent = taxYen(r.furusatoLimit);
+  $("#tax-furusato-input").textContent = taxYen(r.furusato);
+  const judgeEl=$("#tax-furusato-judge");
+  if(r.furusato<=0){
+    judgeEl.textContent="—（まだ寄附額が未入力です）";
+  }else if(r.furusato<=r.furusatoLimit){
+    judgeEl.textContent="上限内です（実質負担2,000円の目安）";
+    judgeEl.style.color="#0f5040";
+  }else{
+    judgeEl.textContent=`上限を${taxYen(r.furusato-r.furusatoLimit)}超えている可能性があります`;
+    judgeEl.style.color="#a32d2d";
+  }
+
+  // e-Tax転記シート
+  const rows=[
+    ["事業収入（売上金額）",taxYen(r.bizIncome)],
+    ["事業所得の必要経費",taxYen(r.totalK)],
+    ["事業所得金額",taxYen(r.bizProfit)],
+    ["給与収入金額（支払金額）",taxYen(r.salary)],
+    ["給与所得控除額",taxYen(r.salaryKoujo)],
+    ["給与所得金額",taxYen(r.salaryIncome)],
+    ["合計所得金額",taxYen(r.totalIncome)],
+    ["社会保険料控除",taxYen(r.shakaihokenTotal)],
+    ["生命保険料・地震保険料控除",taxYen(r.hokenTotal)],
+    ["小規模企業共済等掛金控除",taxYen(r.shoukibo)],
+    ["寄附金控除（ふるさと納税）",taxYen(r.kifu)],
+    ["基礎控除",taxYen(r.kiso)],
+    ["所得控除の合計額",taxYen(r.koujoTotal)],
+    ["課税される所得金額",taxYen(r.kazeiShotoku)],
+    ["所得税額",taxYen(r.shotokuZei)],
+    ["復興特別所得税額",taxYen(r.fukkoZei)],
+    ["申告納税額（所得税＋復興特別所得税）",taxYen(r.shotokuTotal)],
+    ["給与から源泉徴収された税額（源泉徴収票記載額・参考）",taxYen(Number(taxInputs.salaryWithheld)||0)],
+  ];
+  $("#transcribe-table").innerHTML = rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
+}
+
+["t-salary","t-salary-withheld","t-salary-shakaihoken","t-shakaihoken-self","t-shoukibo","t-seimei","t-jishin","t-furusato"].forEach(id=>{
+  const map={
+    "t-salary":"salary","t-salary-withheld":"salaryWithheld","t-salary-shakaihoken":"salaryShakaihoken",
+    "t-shakaihoken-self":"shakaihokenSelf","t-shoukibo":"shoukibo","t-seimei":"seimei","t-jishin":"jishin","t-furusato":"furusato"
+  };
+  $("#"+id).addEventListener("input",()=>{
+    taxInputs[map[id]] = Number($("#"+id).value)||0;
+    saveTaxInputs();
+    renderTax();
+  });
+});
+
+$("#btn-tax-pdf").addEventListener("click",()=>{
+  const r = calcTax();
+  let html=`<h1>税額計算結果（令和7年分・8年分の税制に基づく概算）</h1>
+  <p>作成日：${new Date().toLocaleDateString("ja-JP")}　※本ツールは概算です。最終確認は税務署・税理士へ。</p>
+  <h2>所得の内訳</h2>
+  <table>
+    <tr><th>項目</th><th>金額</th></tr>
+    <tr><td>事業所得</td><td style="text-align:right">${taxYen(r.bizProfit)}</td></tr>
+    <tr><td>給与所得</td><td style="text-align:right">${taxYen(r.salaryIncome)}</td></tr>
+    <tr><td><b>合計所得金額</b></td><td style="text-align:right"><b>${taxYen(r.totalIncome)}</b></td></tr>
+  </table>
+  <h2>所得控除</h2>
+  <table>
+    <tr><th>項目</th><th>金額</th></tr>
+    <tr><td>基礎控除</td><td style="text-align:right">${taxYen(r.kiso)}</td></tr>
+    <tr><td>社会保険料控除</td><td style="text-align:right">${taxYen(r.shakaihokenTotal)}</td></tr>
+    <tr><td>生命保険料・地震保険料控除</td><td style="text-align:right">${taxYen(r.hokenTotal)}</td></tr>
+    <tr><td>小規模企業共済等掛金控除</td><td style="text-align:right">${taxYen(r.shoukibo)}</td></tr>
+    <tr><td>寄附金控除</td><td style="text-align:right">${taxYen(r.kifu)}</td></tr>
+    <tr><td><b>所得控除の合計</b></td><td style="text-align:right"><b>${taxYen(r.koujoTotal)}</b></td></tr>
+  </table>
+  <h2>税額</h2>
+  <table>
+    <tr><th>項目</th><th>金額</th></tr>
+    <tr><td>課税所得金額</td><td style="text-align:right">${taxYen(r.kazeiShotoku)}</td></tr>
+    <tr><td>所得税額</td><td style="text-align:right">${taxYen(r.shotokuZei)}</td></tr>
+    <tr><td>復興特別所得税額</td><td style="text-align:right">${taxYen(r.fukkoZei)}</td></tr>
+    <tr><td><b>所得税・復興特別所得税の合計</b></td><td style="text-align:right"><b>${taxYen(r.shotokuTotal)}</b></td></tr>
+    <tr><td>住民税額の目安</td><td style="text-align:right">${taxYen(r.juuminTotal)}</td></tr>
+    <tr><td>ふるさと納税の控除上限額の目安</td><td style="text-align:right">${taxYen(r.furusatoLimit)}</td></tr>
+  </table>`;
+  $("#print-area").innerHTML=html;
+  window.print();
+});
+
+function render(){ renderList(); renderSummary(); renderRules(); renderIncome(); renderTax(); }
+load(); loadTaxInputs(); buildCatSelects(); render();

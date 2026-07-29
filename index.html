@@ -24,8 +24,9 @@ main{max-width:960px;margin:0 auto;padding:20px 16px 60px}
 h2{font-size:15.5px;font-weight:600;margin:0 0 12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-@media(max-width:600px){.grid2{grid-template-columns:1fr}}
+@media(max-width:600px){.grid2,.grid3{grid-template-columns:1fr}}
 label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:4px;font-weight:600}
 input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
@@ -41,6 +42,7 @@ button.btn.danger{color:var(--danger);border-color:#e8c5c5}
 .stat{background:var(--accent-soft);border-radius:9px;padding:12px 14px}
 .stat .lbl{font-size:11.5px;color:#0f5040;font-weight:600}
 .stat .val{font-size:21px;font-weight:700;color:#0a3f33;margin-top:2px}
+.stat.big .val{font-size:26px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{text-align:left;font-size:11.5px;color:var(--sub);font-weight:600;padding:7px 8px;border-bottom:2px solid var(--line);white-space:nowrap}
 td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -70,6 +72,18 @@ footer{max-width:960px;margin:0 auto;padding:0 16px 40px;font-size:11.5px;color:
   #print-area th,#print-area td{padding:1.2mm 1.5mm;border:0.3mm solid #999}
   #print-area th{background:#eee}
 }
+/* ===== 税額計算タブ用 ===== */
+.calc-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.calc-row .k{color:var(--sub)}
+.calc-row .v{font-variant-numeric:tabular-nums;font-weight:600}
+.calc-row.sub .k{padding-left:14px;color:#8a897f;font-size:12.5px}
+.calc-row.sub .v{font-weight:400;color:#8a897f}
+.calc-row.result{border-top:2px solid var(--ink);border-bottom:none;padding-top:10px;margin-top:4px}
+.calc-row.result .k{color:var(--ink);font-weight:700}
+.calc-row.result .v{font-size:17px;color:var(--accent)}
+.transcribe-table td:first-child{color:var(--sub);width:55%}
+.transcribe-table td:last-child{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.disclaimer{font-size:11.5px;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
 </style>
 </head>
 <body>
@@ -82,6 +96,7 @@ footer{max-width:960px;margin:0 auto;padding:0 16px 40px;font-size:11.5px;color:
   <button data-tab="income">収入を入力</button>
   <button data-tab="list">明細一覧</button>
   <button data-tab="summary">集計</button>
+  <button data-tab="tax">税額計算</button>
   <button data-tab="rules">仕分けルール</button>
   <button data-tab="output">出力・保存</button>
 </nav>
@@ -197,6 +212,107 @@ footer{max-width:960px;margin:0 auto;padding:0 16px 40px;font-size:11.5px;color:
   </div>
 </section>
 
+<!-- ===== 税額計算タブ（新規） ===== -->
+<section class="tab" id="tab-tax">
+  <div class="disclaimer">
+    このタブは「令和7年分・令和8年分」の税制（税制改正の経過措置を含む）に基づく<b>概算</b>です。社会保険料の正確な金額・各種控除の適用可否など、最終的な判断は税務署または税理士にご確認ください。白色申告（事業所得のみ）を前提にしています。
+  </div>
+
+  <div class="card">
+    <h2>① 事業所得（自動計算・集計タブと連動）</h2>
+    <div class="calc-row"><span class="k">事業収入（売上）</span><span class="v" id="tax-biz-income">¥0</span></div>
+    <div class="calc-row"><span class="k">必要経費（按分後）</span><span class="v" id="tax-biz-expense">−¥0</span></div>
+    <div class="calc-row result"><span class="k">事業所得</span><span class="v" id="tax-biz-profit">¥0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>② 給与所得（源泉徴収票の内容を入力）</h2>
+    <p class="muted" style="margin-bottom:10px">源泉徴収票の「支払金額」欄の数字だけ入力すれば、給与所得控除は自動計算されます（令和7年分の新しい控除額表を使用）。</p>
+    <div class="grid2">
+      <div class="field"><label>支払金額（源泉徴収票の①、年間の給与総額）</label><input type="number" id="t-salary" placeholder="例：1200000" min="0"></div>
+      <div class="field"><label>源泉徴収税額（源泉徴収票に記載の金額・参考用）</label><input type="number" id="t-salary-withheld" placeholder="例：15000" min="0"></div>
+    </div>
+    <div class="field">
+      <label>給与から天引きされた社会保険料等の金額（源泉徴収票の記載額）</label>
+      <input type="number" id="t-salary-shakaihoken" placeholder="例：180000" min="0">
+      <p class="hint">源泉徴収票に「社会保険料等の金額」として記載されています</p>
+    </div>
+    <div class="calc-row"><span class="k">給与所得控除額（自動計算）</span><span class="v" id="tax-salary-koujo">¥0</span></div>
+    <div class="calc-row result"><span class="k">給与所得</span><span class="v" id="tax-salary-income">¥0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>③ その他の所得控除</h2>
+    <div class="grid2">
+      <div class="field">
+        <label>国民健康保険・国民年金など（自分で支払った社会保険料）</label>
+        <input type="number" id="t-shakaihoken-self" placeholder="例：350000" min="0">
+        <p class="hint">給与天引き分（②で入力済み）とは別に、自分で支払った分だけ</p>
+      </div>
+      <div class="field">
+        <label>小規模企業共済等掛金控除</label>
+        <input type="number" id="t-shoukibo" placeholder="例：0" min="0">
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>生命保険料控除（合計・上限12万円）</label>
+        <input type="number" id="t-seimei" placeholder="例：40000" min="0" max="120000">
+      </div>
+      <div class="field">
+        <label>地震保険料控除（上限5万円）</label>
+        <input type="number" id="t-jishin" placeholder="例：0" min="0" max="50000">
+      </div>
+    </div>
+    <div class="field">
+      <label>ふるさと納税（寄附金）額の合計</label>
+      <input type="number" id="t-furusato" placeholder="例：50000" min="0">
+      <p class="hint">寄附金控除として所得控除にも反映されます（下の「控除上限額の目安」と合わせて確認してください）</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>④ 所得税額の計算結果</h2>
+    <div class="calc-row"><span class="k">合計所得金額（事業所得＋給与所得）</span><span class="v" id="tax-total-income">¥0</span></div>
+    <div class="calc-row"><span class="k">基礎控除（合計所得金額に応じて自動判定）</span><span class="v" id="tax-kiso">¥0</span></div>
+    <div class="calc-row sub"><span class="k">社会保険料控除（給与天引き＋自己負担分）</span><span class="v" id="tax-shakaihoken-total">¥0</span></div>
+    <div class="calc-row sub"><span class="k">生命保険料・地震保険料控除</span><span class="v" id="tax-hoken-total">¥0</span></div>
+    <div class="calc-row sub"><span class="k">小規模企業共済等掛金控除</span><span class="v" id="tax-shoukibo-show">¥0</span></div>
+    <div class="calc-row sub"><span class="k">寄附金控除（ふるさと納税、−2,000円）</span><span class="v" id="tax-kifu">¥0</span></div>
+    <div class="calc-row"><span class="k">所得控除の合計</span><span class="v" id="tax-koujo-total">¥0</span></div>
+    <div class="calc-row"><span class="k">課税所得金額（1,000円未満切捨）</span><span class="v" id="tax-kazei">¥0</span></div>
+    <div class="calc-row"><span class="k">所得税額（速算表適用）</span><span class="v" id="tax-shotoku">¥0</span></div>
+    <div class="calc-row"><span class="k">復興特別所得税（所得税額×2.1%）</span><span class="v" id="tax-fukko">¥0</span></div>
+    <div class="calc-row result"><span class="k">所得税・復興特別所得税の合計（納税額）</span><span class="v" id="tax-shotoku-total">¥0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>⑤ 住民税額の概算（翌年度）</h2>
+    <p class="muted" style="margin-bottom:10px">住民税の基礎控除は43万円で据え置き（改正なし）。標準税率10%（市町村6%＋都道府県4%）・均等割は標準的な自治体の額で概算しています。実際の税率・均等割額はお住まいの自治体でご確認ください。</p>
+    <div class="calc-row"><span class="k">住民税の課税所得金額（1,000円未満切捨）</span><span class="v" id="tax-juumin-kazei">¥0</span></div>
+    <div class="calc-row"><span class="k">所得割（課税所得金額×10%）</span><span class="v" id="tax-juumin-shotokuwari">¥0</span></div>
+    <div class="calc-row"><span class="k">均等割（標準額の目安）</span><span class="v" id="tax-juumin-kintouwari">¥5,000</span></div>
+    <div class="calc-row result"><span class="k">住民税額の目安（合計）</span><span class="v" id="tax-juumin-total">¥0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>⑥ ふるさと納税の控除上限額（目安）</h2>
+    <p class="muted" style="margin-bottom:10px">一般的な近似計算式による目安です。実際の上限は各ふるさと納税サイトのシミュレーターでも確認することをおすすめします。</p>
+    <div class="calc-row result"><span class="k">控除上限額の目安（実質負担2,000円で収まるライン）</span><span class="v" id="tax-furusato-limit">¥0</span></div>
+    <div class="calc-row"><span class="k">今回入力した寄附額</span><span class="v" id="tax-furusato-input">¥0</span></div>
+    <div class="calc-row" id="tax-furusato-judge-row"><span class="k">判定</span><span class="v" id="tax-furusato-judge">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>⑦ e-Tax入力用・転記シート</h2>
+    <p class="muted" style="margin-bottom:10px">e-Taxの各入力欄に、この順番でそのまま転記できます。</p>
+    <div class="scrollx"><table class="transcribe-table" id="transcribe-table"></table></div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn primary" id="btn-tax-pdf">この内容をPDF化（印刷画面を開く）</button>
+    </div>
+  </div>
+</section>
+
 <!-- ===== ルールタブ ===== -->
 <section class="tab" id="tab-rules">
   <div class="card">
@@ -239,7 +355,7 @@ footer{max-width:960px;margin:0 auto;padding:0 16px 40px;font-size:11.5px;color:
 </section>
 
 </main>
-<footer>※ 本ツールは記帳補助を目的としたものです。勘定科目の最終判断や申告内容については、税務署または税理士にご確認ください。</footer>
+<footer>※ 本ツールは記帳補助・税額概算を目的としたものです。勘定科目の最終判断や申告内容については、税務署または税理士にご確認ください。</footer>
 <div id="print-area"></div>
 <script src="app.js"></script>
 </body>
